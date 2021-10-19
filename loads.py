@@ -13,10 +13,22 @@ def loads():
     # return all loads
     if request.method == 'GET':
         query = client.query(kind=constants.loads)
-        results = list(query.fetch())
-        for load in results:
-            load["id"] = load.key.id
-        return json.dumps(results)
+        inp_limit = request.args.get("limit", 3)
+        inp_offset = request.args.get("page", 0)
+        query_iter = query.fetch(limit=inp_limit, offset=inp_offset)
+        pages = query_iter.pages
+        results = list(next(pages))
+        if query_iter.next_page_token:
+            next_offset = int(inp_offset) + int(inp_limit)
+            next_url = request.base_url + "?limit=" + str(inp_limit) + "&offset=" + str(next_offset)
+        else:
+            next_url = None
+        for e in results:
+            e["id"] = e.key.id
+        output = {"loads": results}
+        if next_url:
+            output["next"] = next_url
+        return json.dumps(output)
 
     # add boat to client
     elif request.method == 'POST':
@@ -84,16 +96,27 @@ def load(load_id):
         client.delete(load_key)
 
         # Add functionality to free up boats carrying deleted load
-        """
-        query = client.query(kind=constants.slips)
+        query = client.query(kind=constants.boats)
         results = list(query.fetch())
-        for slip in results:
-            # if boat_id is found at slip, remove it
-            if slip["current_boat"] == int(boat_id):
-                target_key = client.key(constants.slips, slip.key.id)
-                slip_get = client.get(key=target_key)
-                slip_get.update({"number": slip["number"], "current_boat": None})
-                client.put(slip_get)
-                break
-        """
+        for boat in results:
+            temp_load = []
+            check = len(boat["loads"])
+            # if load_id is found in boat, remove it
+            # iterate through loads
+            for load in boat["loads"]:
+                if load["id"] == int(load_id):
+                    target_key = client.key(constants.boats, boat.key.id)
+                    boat_get = client.get(key=target_key)
+                    boat_get.update(
+                        {"name": boat_get["name"],
+                         "type": boat_get["type"],
+                         "length": boat_get["length"],
+                         "loads": temp_load
+                         })
+                else:
+                    temp_load.append(load)
+            if check != len(temp_load):
+                client.put(boat_get)
+                return '', 204
+
         return '', 204
